@@ -31,6 +31,9 @@ public class Producto {
     @Column(name = "precio_unitario", nullable = false)
     private BigDecimal precioUnitario;
 
+    @Column(name = "image_url")
+    private String imageUrl;
+
     @Column(name = "stock_minimo", columnDefinition = "integer default 0")
     private Integer stockMinimo;
 

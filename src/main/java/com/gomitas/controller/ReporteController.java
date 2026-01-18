@@ -45,9 +45,24 @@ public class ReporteController {
     }
 
     @Operation(summary = "Exportar reporte de inventario", description = "Descarga un archivo con el reporte de inventario en el formato especificado (csv, pdf, excel).")
-    @GetMapping("/inventario/export")
-    public void exportarReporteInventario(@Parameter(description = "Formato del archivo: csv, pdf, excel", required = true) @RequestParam String format,
-                                          HttpServletResponse response) throws IOException {
-        reporteService.exportarReporteInventario(response, format);
+        @GetMapping("/inventario/export")
+        public void exportarReporteInventario(@Parameter(description = "Formato del archivo: csv, pdf, excel", required = true) @RequestParam String format,
+                                              HttpServletResponse response) throws IOException {
+            reporteService.exportarReporteInventario(response, format);
+        }
+    
+        @Operation(summary = "Generar reporte de mantenimiento de maquinaria", description = "Obtiene un historial de mantenimiento para una o varias máquinas en un rango de fechas.")
+        @PostMapping("/maquinaria")
+        public ResponseEntity<List<ReporteDtos.ReporteMaquinariaDto>> generarReporteMaquinaria(@RequestBody ReporteDtos.ReporteMaquinariaRequestDto requestDto) {
+            return ResponseEntity.ok(reporteService.generarReporteMaquinaria(requestDto));
+        }
+    
+        @Operation(summary = "Exportar reporte de mantenimiento de maquinaria", description = "Descarga un archivo con el historial de mantenimiento en el formato especificado (csv, pdf, excel).")
+        @PostMapping("/maquinaria/export")
+        public void exportarReporteMaquinaria(@RequestBody ReporteDtos.ReporteMaquinariaRequestDto requestDto,
+                                              @Parameter(description = "Formato del archivo: csv, pdf, excel", required = true) @RequestParam String format,
+                                              HttpServletResponse response) throws IOException {
+            reporteService.exportarReporteMaquinaria(response, requestDto, format);
+        }
     }
-}
+    

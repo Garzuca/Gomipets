@@ -42,7 +42,9 @@ public class InventarioServiceImpl implements InventarioService {
     @Override
     @Transactional(readOnly = true)
     public InventarioDtos.InventarioResponseDto getInventarioPorProductoId(Long productoId) {
-        return inventarioRepository.findByProducto_ProductoId(productoId)
+        Producto producto = productoRepository.findById(productoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con id: " + productoId));
+        return inventarioRepository.findByProducto(producto)
                 .map(this::mapToInventarioDto)
                 .orElseThrow(() -> new ResourceNotFoundException("Inventario no encontrado para el producto con id: " + productoId));
     }
@@ -57,7 +59,7 @@ public class InventarioServiceImpl implements InventarioService {
         Producto producto = productoRepository.findById(movimientoDto.productoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con id: " + movimientoDto.productoId()));
 
-        InventarioProducto inventario = inventarioRepository.findByProducto_ProductoId(producto.getProductoId())
+        InventarioProducto inventario = inventarioRepository.findByProducto(producto)
                 .orElseThrow(() -> new ResourceNotFoundException("Inventario no encontrado para el producto."));
 
         Integer cantidadAnterior = inventario.getCantidadDisponible();
@@ -103,7 +105,9 @@ public class InventarioServiceImpl implements InventarioService {
     @Override
     @Transactional(readOnly = true)
     public boolean hayStockSuficiente(Long productoId, Integer cantidadRequerida) {
-        InventarioProducto inventario = inventarioRepository.findByProducto_ProductoId(productoId)
+        Producto producto = productoRepository.findById(productoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con id: " + productoId));
+        InventarioProducto inventario = inventarioRepository.findByProducto(producto)
                 .orElseThrow(() -> new ResourceNotFoundException("Inventario no encontrado para el producto con id: " + productoId));
         return inventario.getCantidadDisponible() >= cantidadRequerida;
     }

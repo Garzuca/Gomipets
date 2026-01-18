@@ -7,6 +7,15 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+### archivos generales
+.sql
+.rar
+src_main_resources_gomitasAdmin_src_components_ClientFormModal.vue
+src/main/resources/gomitasAdmin/
+src/main/resources/static/
+src/main/resources/db
+src/main/resources/templates/
+
 
 ### STS ###
 .apt_generated
@@ -38,5 +47,4 @@ build/
 
 ### gomipets ###
 gomipets/pom.xml
-*.sql
-/resources/
+

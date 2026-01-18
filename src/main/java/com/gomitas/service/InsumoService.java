@@ -9,4 +9,7 @@ public interface InsumoService {
     InsumoDtos.InsumoResponseDto getInsumoById(Long id);
     InsumoDtos.InsumoResponseDto createInsumo(InsumoDtos.CreateInsumoRequestDto insumoDto);
     InsumoDtos.InsumoResponseDto updateInsumo(Long id, InsumoDtos.UpdateInsumoRequestDto insumoDto);
+    InsumoDtos.LoteDto addLoteToInsumo(InsumoDtos.AddLoteRequestDto loteDto);
+    // Podríamos añadir más métodos específicos para lotes si es necesario,
+    // como getLotesByInsumoId(Long insumoId), etc.
 }

@@ -10,10 +10,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -65,11 +68,13 @@ public class ProductoController {
             @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<ProductoDtos.ProductoResponseDto> createProducto(@Valid @RequestBody ProductoDtos.CreateProductoRequestDto productoDto) {
-        ProductoDtos.ProductoResponseDto savedProducto = productoService.save(productoDto);
+    public ResponseEntity<ProductoDtos.ProductoResponseDto> createProducto(
+            @Valid @RequestPart("producto") ProductoDtos.CreateProductoRequestDto productoDto,
+            @RequestPart(value = "imagen", required = false) MultipartFile imagen) throws IOException {
+        ProductoDtos.ProductoResponseDto savedProducto = productoService.save(productoDto, imagen);
         return new ResponseEntity<>(savedProducto, HttpStatus.CREATED);
     }
 
@@ -80,12 +85,15 @@ public class ProductoController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado"),
             @ApiResponse(responseCode = "404", description = "Producto no encontrado")
     })
-    @PutMapping("/{id}")
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @SecurityRequirement(name = "bearerAuth")
     @PreAuthorize("hasRole('ADMINISTRADOR')")
-    public ResponseEntity<ProductoDtos.ProductoResponseDto> updateProducto(@PathVariable Long id, @Valid @RequestBody ProductoDtos.UpdateProductoRequestDto productoDto) {
+    public ResponseEntity<ProductoDtos.ProductoResponseDto> updateProducto(
+            @PathVariable Long id,
+            @Valid @RequestPart("producto") ProductoDtos.UpdateProductoRequestDto productoDto,
+            @RequestPart(value = "imagen", required = false) MultipartFile imagen) throws IOException {
         try {
-            ProductoDtos.ProductoResponseDto updatedProducto = productoService.update(id, productoDto);
+            ProductoDtos.ProductoResponseDto updatedProducto = productoService.update(id, productoDto, imagen);
             return ResponseEntity.ok(updatedProducto);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -108,5 +116,34 @@ public class ProductoController {
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    // Endpoints para Recetas
+    @Operation(summary = "Obtener la receta de un producto", description = "Devuelve la lista de insumos y cantidades requeridas para fabricar un producto.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Receta obtenida exitosamente"),
+            @ApiResponse(responseCode = "404", description = "Producto no encontrado")
+    })
+    @GetMapping("/{id}/receta")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR','CLIENTE')")
+    public ResponseEntity<List<ProductoDtos.RecetaResponseDto>> getReceta(@PathVariable Long id) {
+        return ResponseEntity.ok(productoService.getRecetaByProductoId(id));
+    }
+
+    @Operation(summary = "Crear o actualizar la receta de un producto", description = "Establece la lista de insumos para un producto. Si ya existe una receta, será reemplazada. Requiere rol de Administrador.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Receta guardada exitosamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
+            @ApiResponse(responseCode = "403", description = "Acceso denegado"),
+            @ApiResponse(responseCode = "404", description = "Producto o insumo no encontrado")
+    })
+    @PostMapping("/{id}/receta")
+    @SecurityRequirement(name = "bearerAuth")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<List<ProductoDtos.RecetaResponseDto>> createOrUpdateReceta(
+            @PathVariable Long id,
+            @Valid @RequestBody ProductoDtos.CreateRecetaRequestDto recetaDto) {
+        List<ProductoDtos.RecetaResponseDto> savedReceta = productoService.addRecetaToProducto(id, recetaDto);
+        return new ResponseEntity<>(savedReceta, HttpStatus.CREATED);
     }
 }

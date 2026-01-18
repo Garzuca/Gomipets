@@ -49,7 +49,7 @@ public class OrdenProduccion {
     private LocalDateTime fechaFin;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "estado_produccion", nullable = false)
+    @Column(name = "estado", nullable = false)
     private EstadoProduccion estado;
 
     @ManyToOne(fetch = FetchType.LAZY)

@@ -13,4 +13,5 @@ public interface PedidoService {
     List<PedidoDtos.PedidoResponseDto> findByClienteId(Long clienteId);
     List<PedidoDtos.PedidoResponseDto> findByCurrentUser(Authentication authentication);
     PedidoDtos.PedidoResponseDto updatePedidoStatus(Long id, String estado);
+    PedidoDtos.PedidoResponseDto despacharPedido(Long pedidoId);
 }

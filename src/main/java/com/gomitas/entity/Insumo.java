@@ -1,5 +1,6 @@
 package com.gomitas.entity;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -8,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 @Builder
@@ -30,23 +32,15 @@ public class Insumo {
     @Column(name = "unidad_medida", nullable = false)
     private String unidadMedida;
 
-    @Column(name = "cantidad_stock", nullable = false)
-    private BigDecimal cantidadStock = BigDecimal.ZERO;
-
     @Column(name = "stock_minimo")
     private BigDecimal stockMinimo = BigDecimal.ZERO;
-
-    @Column(name = "fecha_ingreso")
-    private LocalDate fechaIngreso;
-
-    @Column(name = "fecha_vencimiento")
-    private LocalDate fechaVencimiento;
-
-    @Column(name = "costo_unitario", nullable = false)
-    private BigDecimal costoUnitario;
 
     private String proveedor;
 
     @Builder.Default
     private Boolean estado = true;
+
+    @OneToMany(mappedBy = "insumo", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonManagedReference
+    private List<LoteInsumo> lotes;
 }

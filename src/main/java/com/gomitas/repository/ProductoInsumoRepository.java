@@ -10,4 +10,6 @@ import java.util.List;
 @Repository
 public interface ProductoInsumoRepository extends JpaRepository<ProductoInsumo, Long> {
     List<ProductoInsumo> findByProducto(Producto producto);
+    List<ProductoInsumo> findByProducto_ProductoId(Long productoId);
+    void deleteByProducto_ProductoId(Long productoId);
 }

@@ -101,4 +101,17 @@ public class PedidoController {
     public ResponseEntity<List<PedidoDtos.PedidoResponseDto>> getPedidosByClienteId(@PathVariable Long clienteId) {
         return ResponseEntity.ok(pedidoService.findByClienteId(clienteId));
     }
+
+    @Operation(summary = "Despachar un pedido (admin)", description = "Cambia el estado de un pedido a 'Despachado' y descuenta los productos del inventario. Requiere rol de Administrador.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pedido despachado y stock actualizado"),
+            @ApiResponse(responseCode = "400", description = "El pedido no puede ser despachado o stock insuficiente"),
+            @ApiResponse(responseCode = "403", description = "Acceso denegado"),
+            @ApiResponse(responseCode = "404", description = "Pedido no encontrado")
+    })
+    @PostMapping("/{id}/despachar")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<PedidoDtos.PedidoResponseDto> despacharPedido(@PathVariable Long id) {
+        return ResponseEntity.ok(pedidoService.despacharPedido(id));
+    }
 }

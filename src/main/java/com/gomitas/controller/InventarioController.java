@@ -28,7 +28,6 @@ public class InventarioController {
     public ResponseEntity<List<InventarioDtos.InventarioResponseDto>> getEstadoInventario() {
         return ResponseEntity.ok(inventarioService.getEstadoInventario());
     }
-
     @Operation(summary = "Registrar movimiento de inventario", description = "Registra una entrada, salida o ajuste de stock para un producto.")
     @PostMapping("/productos/movimiento")
     public ResponseEntity<InventarioDtos.MovimientoResponseDto> registrarMovimiento(

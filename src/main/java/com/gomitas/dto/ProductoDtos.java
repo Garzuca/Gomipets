@@ -4,10 +4,13 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 import lombok.Builder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+
+import java.util.List;
 
 public class ProductoDtos {
 
@@ -17,6 +20,7 @@ public class ProductoDtos {
             String nombre,
             String descripcion,
             BigDecimal precioUnitario,
+            String imageUrl,
             Integer stockMinimo,
             LocalDate fechaCreacion,
             Boolean estado
@@ -52,5 +56,26 @@ public class ProductoDtos {
             Integer stockMinimo,
 
             Boolean estado
+    ) {}
+
+    @Builder
+    public record RecetaInsumoDto(
+            @NotNull Long insumoId,
+            @NotNull @DecimalMin("0.0001") BigDecimal cantidadRequerida
+    ) {}
+
+    @Builder
+    public record CreateRecetaRequestDto(
+            @NotNull
+            @Size(min = 1, message = "La receta debe contener al menos un insumo.")
+            List<@Valid RecetaInsumoDto> insumos
+    ) {}
+
+    @Builder
+    public record RecetaResponseDto(
+            Long insumoId,
+            String nombreInsumo,
+            BigDecimal cantidadRequerida,
+            String unidad
     ) {}
 }

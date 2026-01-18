@@ -43,24 +43,91 @@ public class InteligenciaServiceImpl implements InteligenciaService {
         Producto producto = productoRepository.findById(requestDto.productoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado"));
 
-        // Lógica de pronóstico simplificada (promedio histórico)
-        List<VentasHistoricas> ventas = ventasHistoricasRepository.findAll();
-        double promedioVentas = ventas.stream()
-                .filter(v -> v.getProducto().getProductoId().equals(producto.getProductoId()))
-                .mapToInt(VentasHistoricas::getCantidadVendida)
-                .average()
-                .orElse(10.0); // Valor por defecto si no hay historial
+        // CONSULTA OPTIMIZADA: La base de datos filtra y ordena los resultados.
+        List<VentasHistoricas> ventas = ventasHistoricasRepository.findByProducto_ProductoIdOrderByFechaVentaDesc(producto.getProductoId());
+
+        if (ventas.isEmpty()) {
+            throw new BadRequestException("No hay historial de ventas para este producto para generar un pronóstico.");
+        }
+
+        int cantidadEstimada;
+
+        switch (requestDto.metodo()) {
+            case PROMEDIO_MOVIL:
+                cantidadEstimada = calcularPromedioMovil(ventas, 3); // Usando los últimos 3 periodos
+                break;
+            case PROMEDIO_PONDERADO:
+                cantidadEstimada = calcularPromedioPonderado(ventas, new double[]{0.5, 0.3, 0.2}); // Pesos para los últimos 3 periodos
+                break;
+            case SUAVIZADO_EXPONENCIAL:
+                cantidadEstimada = calcularSuavizadoExponencial(ventas, 0.3); // Factor de suavizado alpha
+                break;
+            case REGRESION_LINEAL:
+                // Este es más complejo y se deja como mejora futura o con una implementación simplificada.
+                // Por ahora, usará el promedio simple como fallback.
+            default:
+                cantidadEstimada = (int) Math.round(ventas.stream()
+                        .mapToInt(VentasHistoricas::getCantidadVendida)
+                        .average()
+                        .orElse(10.0));
+                break;
+        }
 
         Pronostico pronostico = Pronostico.builder()
                 .producto(producto)
                 .fechaPronosticada(requestDto.fechaFutura())
-                .cantidadEstimada((int) Math.round(promedioVentas))
+                .cantidadEstimada(cantidadEstimada)
                 .metodo(requestDto.metodo())
                 .build();
 
         Pronostico savedPronostico = pronosticoRepository.save(pronostico);
         return mapToPronosticoDto(savedPronostico);
     }
+
+    private int calcularPromedioMovil(List<VentasHistoricas> ventas, int periodos) {
+        if (ventas.size() < periodos) {
+            // Si no hay suficientes datos, calcula el promedio de los que hay
+            return (int) Math.round(ventas.stream()
+                    .mapToInt(VentasHistoricas::getCantidadVendida)
+                    .average().orElse(0));
+        }
+        return (int) Math.round(ventas.stream().limit(periodos)
+                .mapToInt(VentasHistoricas::getCantidadVendida)
+                .average().orElse(0));
+    }
+
+    private int calcularPromedioPonderado(List<VentasHistoricas> ventas, double[] pesos) {
+        if (ventas.size() < pesos.length) {
+            // Fallback a promedio móvil simple si no hay suficientes datos
+            return calcularPromedioMovil(ventas, ventas.size());
+        }
+        double sumaPonderada = 0;
+        for (int i = 0; i < pesos.length; i++) {
+            sumaPonderada += ventas.get(i).getCantidadVendida() * pesos[i];
+        }
+        return (int) Math.round(sumaPonderada);
+    }
+
+    private int calcularSuavizadoExponencial(List<VentasHistoricas> ventas, double alpha) {
+        // Implementación de Suavizado Exponencial Simple (SES)
+        // El pronóstico para el siguiente periodo es el valor suavizado del último periodo.
+        if (ventas.isEmpty()) return 0;
+
+        // Invertimos la lista para empezar desde el más antiguo al más reciente
+        List<VentasHistoricas> ventasAsc = ventas.stream()
+                .sorted((v1, v2) -> v1.getFechaVenta().compareTo(v2.getFechaVenta()))
+                .collect(Collectors.toList());
+
+        double smoothedValue = ventasAsc.get(0).getCantidadVendida(); // El primer valor es el punto de partida
+
+        for (int i = 1; i < ventasAsc.size(); i++) {
+            int actual = ventasAsc.get(i).getCantidadVendida();
+            smoothedValue = alpha * actual + (1 - alpha) * smoothedValue;
+        }
+
+        return (int) Math.round(smoothedValue);
+    }
+
 
     @Override
     @Transactional

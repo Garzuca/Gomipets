@@ -1,17 +1,13 @@
 package com.gomitas.service.impl;
 
-import com.gomitas.dto.InventarioDtos;
 import com.gomitas.dto.PedidoDtos;
 import com.gomitas.entity.*;
-import com.gomitas.enums.TipoMovimientoInventario;
+import com.gomitas.enums.PrioridadAlerta;
+import com.gomitas.enums.TipoAlerta;
 import com.gomitas.exception.BadRequestException;
 import com.gomitas.exception.ResourceNotFoundException;
-import com.gomitas.repository.ClienteRepository;
-import com.gomitas.repository.PedidoRepository;
-import com.gomitas.repository.ProductoRepository;
-import com.gomitas.repository.VentasHistoricasRepository;
+import com.gomitas.repository.*;
 import com.gomitas.security.UserDetailsImpl;
-import com.gomitas.service.InventarioService;
 import com.gomitas.service.PedidoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -32,8 +28,9 @@ public class PedidoServiceImpl implements PedidoService {
     private final PedidoRepository pedidoRepository;
     private final ClienteRepository clienteRepository;
     private final ProductoRepository productoRepository;
-    private final InventarioService inventarioService;
     private final VentasHistoricasRepository ventasHistoricasRepository;
+    private final InventarioProductoRepository inventarioProductoRepository;
+    private final AlertaRepository alertaRepository;
 
     @Override
     @Transactional
@@ -42,17 +39,34 @@ public class PedidoServiceImpl implements PedidoService {
         Cliente cliente = clienteRepository.findByUsuarioIdWithUsuario(userDetails.getUsuarioId())
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente no encontrado para el usuario autenticado."));
 
-        // 1. Verificar stock de todos los productos ANTES de hacer cambios
+        String estadoPedido = "Pendiente";
+
+        // 1. Verificar stock y generar alertas si es necesario
         for (PedidoDtos.CreatePedidoItemDto itemDto : pedidoDto.items()) {
-            inventarioService.getInventarioPorProductoId(itemDto.productoId()); // Lanza excepción si no existe
-            if (!inventarioService.hayStockSuficiente(itemDto.productoId(), itemDto.cantidad())) {
-                throw new BadRequestException("Stock insuficiente para el producto con ID: " + itemDto.productoId());
+            Producto producto = productoRepository.findById(itemDto.productoId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con ID: " + itemDto.productoId()));
+
+            InventarioProducto inventario = inventarioProductoRepository.findByProducto(producto)
+                    .orElseThrow(() -> new ResourceNotFoundException("Inventario no encontrado para el producto con ID: " + itemDto.productoId()));
+
+            if (inventario.getCantidadDisponible() < itemDto.cantidad()) {
+                estadoPedido = "Pendiente por Stock";
+                
+                int cantidadFaltante = itemDto.cantidad() - inventario.getCantidadDisponible();
+
+                Alerta alerta = Alerta.builder()
+                        .tipo(TipoAlerta.NECESIDAD_PRODUCCION)
+                        .mensaje("Stock insuficiente para '" + producto.getNombre() + "'. Se necesitan " + cantidadFaltante + " unidades para el pedido.")
+                        .prioridad(PrioridadAlerta.ALTA)
+                        .leida(false)
+                        .build();
+                alertaRepository.save(alerta);
             }
         }
 
         Pedido pedido = Pedido.builder()
                 .cliente(cliente)
-                .estado("Pendiente")
+                .estado(estadoPedido)
                 .metodoPago(pedidoDto.metodoPago())
                 .observaciones(pedidoDto.observaciones())
                 .detalles(new ArrayList<>())
@@ -60,19 +74,10 @@ public class PedidoServiceImpl implements PedidoService {
 
         BigDecimal totalPedido = BigDecimal.ZERO;
 
-        // 2. Ahora que sabemos que hay stock, procesamos el pedido
+        // 2. Construir el pedido
         for (PedidoDtos.CreatePedidoItemDto itemDto : pedidoDto.items()) {
             Producto producto = productoRepository.findById(itemDto.productoId())
                     .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con id: " + itemDto.productoId()));
-
-            // Descontar stock
-            InventarioDtos.MovimientoRequestDto movimientoDto = new InventarioDtos.MovimientoRequestDto(
-                    producto.getProductoId(),
-                    TipoMovimientoInventario.SALIDA,
-                    itemDto.cantidad(),
-                    "Venta - Pedido #" + pedido.getPedidoId() // Se asignará el ID después de guardar
-            );
-            inventarioService.registrarMovimiento(movimientoDto, authentication);
 
             BigDecimal subtotal = producto.getPrecioUnitario().multiply(new BigDecimal(itemDto.cantidad()));
             totalPedido = totalPedido.add(subtotal);
@@ -94,11 +99,42 @@ public class PedidoServiceImpl implements PedidoService {
 
     @Override
     @Transactional
+    public PedidoDtos.PedidoResponseDto despacharPedido(Long pedidoId) {
+        Pedido pedido = pedidoRepository.findByIdWithDetails(pedidoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con id: " + pedidoId));
+
+        if (!pedido.getEstado().equalsIgnoreCase("Pendiente") && !pedido.getEstado().equalsIgnoreCase("Pendiente por Stock")) {
+            throw new BadRequestException("Solo se pueden despachar pedidos en estado 'Pendiente' o 'Pendiente por Stock'.");
+        }
+
+        // Descontar cada producto del inventario
+        for (DetallePedido detalle : pedido.getDetalles()) {
+            Producto producto = detalle.getProducto();
+            int cantidadVendida = detalle.getCantidad();
+
+            InventarioProducto inventarioProducto = inventarioProductoRepository.findByProducto(producto)
+                    .orElseThrow(() -> new ResourceNotFoundException("Inventario no encontrado para el producto: " + producto.getNombre()));
+
+            if (inventarioProducto.getCantidadDisponible() < cantidadVendida) {
+                throw new BadRequestException("Stock insuficiente para el producto '" + producto.getNombre() + "'. Requerido: " + cantidadVendida + ", Disponible: " + inventarioProducto.getCantidadDisponible());
+            }
+
+            inventarioProducto.setCantidadDisponible(inventarioProducto.getCantidadDisponible() - cantidadVendida);
+            inventarioProductoRepository.save(inventarioProducto);
+        }
+
+        pedido.setEstado("Despachado");
+        Pedido pedidoDespachado = pedidoRepository.save(pedido);
+
+        return mapToDto(pedidoDespachado);
+    }
+    
+    @Override
+    @Transactional
     public PedidoDtos.PedidoResponseDto updatePedidoStatus(Long id, String estado) {
         Pedido pedido = pedidoRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con id: " + id));
 
-        // Lógica para registrar ventas históricas cuando el pedido se completa
         if ("Entregado".equalsIgnoreCase(estado) && !"Entregado".equalsIgnoreCase(pedido.getEstado())) {
             registrarVentasHistoricas(pedido);
         }
@@ -121,7 +157,6 @@ public class PedidoServiceImpl implements PedidoService {
         }
     }
 
-    // --- Otros métodos (findAll, findById, etc.) sin cambios ---
     @Override
     @Transactional(readOnly = true)
     public List<PedidoDtos.PedidoResponseDto> findAll() {

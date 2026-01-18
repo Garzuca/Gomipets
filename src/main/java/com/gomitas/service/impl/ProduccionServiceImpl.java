@@ -1,15 +1,12 @@
 package com.gomitas.service.impl;
 
-import com.gomitas.dto.InventarioDtos;
 import com.gomitas.dto.ProduccionDtos;
 import com.gomitas.entity.*;
 import com.gomitas.enums.EstadoProduccion;
-import com.gomitas.enums.TipoMovimientoInventario;
 import com.gomitas.exception.BadRequestException;
 import com.gomitas.exception.ResourceNotFoundException;
 import com.gomitas.repository.*;
 import com.gomitas.security.UserDetailsImpl;
-import com.gomitas.service.InventarioService;
 import com.gomitas.service.ProduccionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -18,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,8 +28,9 @@ public class ProduccionServiceImpl implements ProduccionService {
     private final InsumoRepository insumoRepository;
     private final ProductoInsumoRepository productoInsumoRepository;
     private final DetalleProduccionRepository detalleProduccionRepository;
-    private final InventarioService inventarioService;
     private final UsuarioRepository usuarioRepository;
+    private final InventarioProductoRepository inventarioProductoRepository;
+    private final LoteInsumoRepository loteInsumoRepository; // Repositorio para lotes
 
     @Override
     @Transactional(readOnly = true)
@@ -58,12 +57,13 @@ public class ProduccionServiceImpl implements ProduccionService {
             throw new BadRequestException("El producto no tiene una receta de insumos definida.");
         }
 
-        // Verificar stock de insumos
+        // Verificar stock de insumos sumando las cantidades de los lotes
         for (ProductoInsumo itemReceta : receta) {
             Insumo insumo = itemReceta.getInsumo();
             BigDecimal cantidadRequerida = itemReceta.getCantidadRequerida().multiply(BigDecimal.valueOf(requestDto.cantidadPlanificada()));
-            if (insumo.getCantidadStock().compareTo(cantidadRequerida) < 0) {
-                throw new BadRequestException("Stock insuficiente para el insumo: " + insumo.getNombre());
+            BigDecimal stockTotal = getInsumoStock(insumo);
+            if (stockTotal.compareTo(cantidadRequerida) < 0) {
+                throw new BadRequestException("Stock insuficiente para el insumo: " + insumo.getNombre() + ". Requerido: " + cantidadRequerida + ", Disponible: " + stockTotal);
             }
         }
 
@@ -78,7 +78,6 @@ public class ProduccionServiceImpl implements ProduccionService {
 
         OrdenProduccion savedOrden = ordenProduccionRepository.save(orden);
 
-        // Crear detalles de producción
         receta.forEach(itemReceta -> {
             DetalleProduccion detalle = DetalleProduccion.builder()
                     .ordenProduccion(savedOrden)
@@ -94,18 +93,6 @@ public class ProduccionServiceImpl implements ProduccionService {
 
     @Override
     @Transactional
-    public ProduccionDtos.OrdenProduccionResponseDto iniciarOrden(Long id, Authentication authentication) {
-        OrdenProduccion orden = findOrdenById(id);
-        if (orden.getEstado() != EstadoProduccion.PLANIFICADA) {
-            throw new BadRequestException("Solo se pueden iniciar órdenes en estado 'Planificada'.");
-        }
-        orden.setEstado(EstadoProduccion.EN_PROCESO);
-        orden.setFechaInicio(LocalDateTime.now());
-        return mapToOrdenProduccionResponseDto(ordenProduccionRepository.save(orden));
-    }
-
-    @Override
-    @Transactional
     public ProduccionDtos.OrdenProduccionResponseDto completarOrden(Long id, Authentication authentication) {
         OrdenProduccion orden = findOrdenById(id);
         if (orden.getEstado() != EstadoProduccion.EN_PROCESO) {
@@ -114,32 +101,81 @@ public class ProduccionServiceImpl implements ProduccionService {
 
         List<DetalleProduccion> detalles = detalleProduccionRepository.findByOrdenProduccion(orden);
 
-        // Descontar insumos del stock
+        // 1. Descontar insumos del stock usando lógica FEFO (First-Expires, First-Out)
         for (DetalleProduccion detalle : detalles) {
             Insumo insumo = detalle.getInsumo();
             BigDecimal cantidadRequerida = detalle.getCantidadRequerida();
-            if (insumo.getCantidadStock().compareTo(cantidadRequerida) < 0) {
-                throw new BadRequestException("Stock insuficiente para el insumo: " + insumo.getNombre() + " al momento de completar.");
+
+            // Validar stock total del insumo
+            BigDecimal stockTotal = getInsumoStock(insumo);
+            if (stockTotal.compareTo(cantidadRequerida) < 0) {
+                throw new BadRequestException("Stock insuficiente para el insumo '" + insumo.getNombre() + "'. Requerido: " + cantidadRequerida + ", Disponible: " + stockTotal);
             }
-            insumo.setCantidadStock(insumo.getCantidadStock().subtract(cantidadRequerida));
+
+            descontarStockDeLotes(insumo, cantidadRequerida);
             detalle.setCantidadUtilizada(cantidadRequerida);
-            insumoRepository.save(insumo);
             detalleProduccionRepository.save(detalle);
         }
 
-        // Incrementar stock del producto terminado
-        InventarioDtos.MovimientoRequestDto movimientoDto = new InventarioDtos.MovimientoRequestDto(
-                orden.getProducto().getProductoId(),
-                TipoMovimientoInventario.ENTRADA,
-                orden.getCantidadPlanificada(),
-                "Entrada por producción, orden #" + orden.getOrdenId()
-        );
-        inventarioService.registrarMovimiento(movimientoDto, authentication);
+        // 2. Incrementar stock del producto terminado
+        Producto productoTerminado = orden.getProducto();
+        InventarioProducto inventarioProducto = inventarioProductoRepository.findByProducto(productoTerminado)
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró el registro de inventario para el producto: " + productoTerminado.getNombre()));
 
+        inventarioProducto.setCantidadDisponible(inventarioProducto.getCantidadDisponible() + orden.getCantidadPlanificada());
+        inventarioProductoRepository.save(inventarioProducto);
+
+        // 3. Actualizar estado de la orden
         orden.setEstado(EstadoProduccion.COMPLETADA);
         orden.setFechaFin(LocalDateTime.now());
         orden.setCantidadProducida(orden.getCantidadPlanificada());
 
+        return mapToOrdenProduccionResponseDto(ordenProduccionRepository.save(orden));
+    }
+
+    private void descontarStockDeLotes(Insumo insumo, BigDecimal cantidadADescontar) {
+        // Obtener lotes con stock, ordenados por fecha de vencimiento (nulos al final, luego ascendente)
+        List<LoteInsumo> lotesOrdenados = insumo.getLotes().stream()
+                .filter(lote -> lote.getCantidad().compareTo(BigDecimal.ZERO) > 0)
+                .sorted(Comparator.comparing(LoteInsumo::getFechaVencimiento, Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+
+        BigDecimal cantidadRestante = cantidadADescontar;
+
+        for (LoteInsumo lote : lotesOrdenados) {
+            if (cantidadRestante.compareTo(BigDecimal.ZERO) <= 0) break;
+
+            BigDecimal cantidadEnLote = lote.getCantidad();
+            BigDecimal cantidadAUsar = cantidadEnLote.min(cantidadRestante);
+
+            lote.setCantidad(cantidadEnLote.subtract(cantidadAUsar));
+            loteInsumoRepository.save(lote);
+
+            cantidadRestante = cantidadRestante.subtract(cantidadAUsar);
+        }
+
+        if (cantidadRestante.compareTo(BigDecimal.ZERO) > 0) {
+            // Esto no debería pasar si la validación inicial es correcta, pero es una salvaguarda.
+            throw new BadRequestException("No se pudo descontar la cantidad completa del insumo: " + insumo.getNombre());
+        }
+    }
+
+    private BigDecimal getInsumoStock(Insumo insumo) {
+        return insumo.getLotes().stream()
+                .map(LoteInsumo::getCantidad)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    // --- Métodos sin cambios ---
+    @Override
+    @Transactional
+    public ProduccionDtos.OrdenProduccionResponseDto iniciarOrden(Long id, Authentication authentication) {
+        OrdenProduccion orden = findOrdenById(id);
+        if (orden.getEstado() != EstadoProduccion.PLANIFICADA) {
+            throw new BadRequestException("Solo se pueden iniciar órdenes en estado 'Planificada'.");
+        }
+        orden.setEstado(EstadoProduccion.EN_PROCESO);
+        orden.setFechaInicio(LocalDateTime.now());
         return mapToOrdenProduccionResponseDto(ordenProduccionRepository.save(orden));
     }
 

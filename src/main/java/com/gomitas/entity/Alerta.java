@@ -27,7 +27,7 @@ public class Alerta {
     private Long alertaId;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "tipo_alerta")
+    @Column(name = "tipo")
     private TipoAlerta tipo;
 
     @Column(name = "entidad_id")
@@ -40,7 +40,7 @@ public class Alerta {
     private String mensaje;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "prioridad_alerta")
+    @Column(name = "prioridad")
     private PrioridadAlerta prioridad;
 
     @CreationTimestamp

@@ -11,4 +11,8 @@ public interface ReporteService {
     List<ReporteDtos.ReporteInventarioDto> generarReporteInventario();
     void exportarReporteVentas(HttpServletResponse response, ReporteDtos.ReporteVentasRequestDto requestDto, String format) throws IOException;
     void exportarReporteInventario(HttpServletResponse response, String format) throws IOException;
+
+    // Métodos para el reporte de maquinaria
+    List<ReporteDtos.ReporteMaquinariaDto> generarReporteMaquinaria(ReporteDtos.ReporteMaquinariaRequestDto requestDto);
+    void exportarReporteMaquinaria(HttpServletResponse response, ReporteDtos.ReporteMaquinariaRequestDto requestDto, String format) throws IOException;
 }

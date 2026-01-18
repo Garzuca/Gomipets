@@ -30,7 +30,7 @@ public class MovimientoInventario {
     private Producto producto;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "tipo_movimiento_inventario")
+    @Column(name = "tipo_movimiento")
     private TipoMovimientoInventario tipoMovimiento;
 
     @Column(nullable = false)
